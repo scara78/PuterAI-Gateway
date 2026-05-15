@@ -8,6 +8,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+PORT="${PORT:-8000}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://localhost:${PORT}}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL%/}"
+
 # ── Colors ─────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
@@ -31,16 +35,16 @@ echo -e "${YELLOW}📦 Installing dependencies...${NC}"
 $PYTHON -m pip install -q -r requirements.txt --break-system-packages
 echo -e "${GREEN}✅ Dependencies ready${NC}"
 
-# ── Kill old process on port 8000 ─────────────────────
-if lsof -Pi :8000 -sTCP:LISTEN -t &>/dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  Port 8000 in use — stopping old process...${NC}"
-    kill $(lsof -Pi :8000 -sTCP:LISTEN -t) 2>/dev/null || true
+# ── Kill old process on selected port ──────────────────
+if command -v lsof &>/dev/null && lsof -Pi :"$PORT" -sTCP:LISTEN -t &>/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  Port $PORT in use — stopping old process...${NC}"
+    kill $(lsof -Pi :"$PORT" -sTCP:LISTEN -t) 2>/dev/null || true
     sleep 1
 fi
 
 # ── Start server ───────────────────────────────────────
-echo -e "${CYAN}🚀 Starting server on http://localhost:8000 ...${NC}"
-$PYTHON server.py &
+echo -e "${CYAN}🚀 Starting server on 0.0.0.0:${PORT} ...${NC}"
+PORT="$PORT" $PYTHON server.py &
 SERVER_PID=$!
 sleep 2
 
@@ -51,9 +55,11 @@ if ! kill -0 $SERVER_PID 2>/dev/null; then
 fi
 echo -e "${GREEN}✅ Server running (PID $SERVER_PID)${NC}"
 
-# ── Open browser ───────────────────────────────────────
-BRIDGE_URL="http://localhost:8000/bridge"
-CHAT_URL="http://localhost:8000/chat"
+# ── Public URLs ────────────────────────────────────────
+BRIDGE_URL="${PUBLIC_BASE_URL}/bridge"
+CHAT_URL="${PUBLIC_BASE_URL}/chat"
+DOCS_URL="${PUBLIC_BASE_URL}/docs"
+API_URL="${PUBLIC_BASE_URL}/v1"
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════${NC}"
@@ -63,9 +69,12 @@ echo ""
 echo -e "${BOLD}  STEP 2: Use the Chatbot UI${NC}"
 echo -e "  ${BLUE}${CHAT_URL}${NC}"
 echo ""
-echo -e "${BOLD}  STEP 3: Use in Python${NC}"
+echo -e "${BOLD}  STEP 3: API Docs${NC}"
+echo -e "  ${BLUE}${DOCS_URL}${NC}"
+echo ""
+echo -e "${BOLD}  STEP 4: Use in Python${NC}"
 echo -e "  ${CYAN}from openai import OpenAI${NC}"
-echo -e "  ${CYAN}client = OpenAI(base_url='http://localhost:8000/v1', api_key='no-key')${NC}"
+echo -e "  ${CYAN}client = OpenAI(base_url='${API_URL}', api_key='no-key')${NC}"
 echo -e "  ${CYAN}r = client.chat.completions.create(${NC}"
 echo -e "  ${CYAN}    model='claude-opus-4-7',${NC}"
 echo -e "  ${CYAN}    messages=[{'role':'user','content':'Hello!'}]${NC}"
@@ -74,20 +83,26 @@ echo ""
 echo -e "${BOLD}  Test API: ${YELLOW}python test_api.py${NC}"
 echo -e "${BOLD}══════════════════════════════════════════════════${NC}"
 
-# ── Auto-open browser if possible ─────────────────────
-OPEN_CMD=""
-if command -v xdg-open &>/dev/null; then OPEN_CMD="xdg-open"
-elif command -v open &>/dev/null;    then OPEN_CMD="open"
-elif command -v start &>/dev/null;   then OPEN_CMD="start"
-fi
+# ── Auto-open browser only on local usage ──────────────
+if [[ "$PUBLIC_BASE_URL" == http://localhost:* || "$PUBLIC_BASE_URL" == http://127.0.0.1:* ]]; then
+    OPEN_CMD=""
+    if command -v xdg-open &>/dev/null; then OPEN_CMD="xdg-open"
+    elif command -v open &>/dev/null;    then OPEN_CMD="open"
+    elif command -v start &>/dev/null;   then OPEN_CMD="start"
+    fi
 
-if [ -n "$OPEN_CMD" ]; then
-    echo -e "${GREEN}🌐 Opening bridge in browser...${NC}"
-    $OPEN_CMD "$BRIDGE_URL" 2>/dev/null || true
-    sleep 1
-    $OPEN_CMD "$CHAT_URL"   2>/dev/null || true
+    if [ -n "$OPEN_CMD" ]; then
+        echo -e "${GREEN}🌐 Opening bridge in browser...${NC}"
+        $OPEN_CMD "$BRIDGE_URL" 2>/dev/null || true
+        sleep 1
+        $OPEN_CMD "$CHAT_URL"   2>/dev/null || true
+    else
+        echo -e "${YELLOW}⚠️  Manually open these URLs in your browser:${NC}"
+        echo -e "   Bridge: ${BRIDGE_URL}"
+        echo -e "   Chat:   ${CHAT_URL}"
+    fi
 else
-    echo -e "${YELLOW}⚠️  Manually open these URLs in your browser:${NC}"
+    echo -e "${YELLOW}🌐 Public deployment detected. Open manually:${NC}"
     echo -e "   Bridge: ${BRIDGE_URL}"
     echo -e "   Chat:   ${CHAT_URL}"
 fi
